@@ -13,10 +13,12 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "check": "node --check model.mjs && node --check cli.mjs && node --check model.test.mjs && node --test model.test.mjs",
+    "check": "node --check model.mjs && node --check online.mjs && node --check cli.mjs && node --check volt-extension.js && node --test model.test.mjs online.test.mjs volt-extension.test.mjs",
     "train": "node cli.mjs train",
     "evaluate": "node cli.mjs evaluate",
     "predict": "node cli.mjs predict",
-    "benchmark": "node cli.mjs benchmark"
+    "benchmark": "node cli.mjs benchmark",
+    "observe": "node cli.mjs observe",
+    "status": "node cli.mjs status"
   }
 }

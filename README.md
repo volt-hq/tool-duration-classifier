@@ -26,7 +26,7 @@ node cli.mjs benchmark
 node --test model.test.mjs
 ```
 
-No install step is needed. `npm run check` runs syntax checks and all ten tests.
+No install step is needed. `npm run check` runs syntax checks and all tests.
 GitHub Actions runs checks on Linux and Windows with Node 22 and 24.
 
 The first two examples return `long` and `short`, respectively. No dependencies,
@@ -44,6 +44,85 @@ Scores at or below 0.25 return `short`; scores at or above 0.75 return `long`;
 intermediate scores and unseen tool names return `uncertain`. These are fixed
 experimental cutoffs, not calibrated confidence guarantees. Unknown commands for a
 known tool can still produce an incorrect confident prediction.
+
+## Learn while using Volt
+
+Load the observer explicitly when starting Volt in your working repository. For
+example, when the classifier and Volt clones are sibling directories:
+
+```sh
+cd ../Volt
+volt -e ../tool-duration-classifier/volt-extension.js
+```
+
+Use the absolute extension path when working elsewhere. Use Volt normally; the
+extension captures a prediction at each foreground `bash` start and learns after a
+successful completion. It never changes scheduling, tool arguments, results, or
+model prompts. Background launches and non-shell tools are skipped. Failed and
+cancelled shell calls are counted separately and do not train the model; abandoned
+calls without an end event are discarded. Durations are execution-event wall times,
+including intervening harness/hook overhead, rather than isolated subprocess CPU time.
+
+Inspect progress from the classifier clone:
+
+```sh
+node cli.mjs status --repo ../Volt
+node cli.mjs predict --repo ../Volt --command "npm run check"
+```
+
+Each repository working tree gets a separate local model under
+`~/.volt/tool-duration-classifier/`. Subdirectories resolve to the nearest `.git`
+directory or worktree file; non-Git directories are keyed by their own canonical
+path. Separate clones/worktrees intentionally learn independently. Override storage
+with `VOLT_DURATION_STATE_DIR` or the CLI's `--state-dir`. The shipped model is never
+overwritten. Nothing is uploaded or written into the user's repository.
+
+State contains model weights, the repository path, aggregate prediction counts, and
+up to 128 hashed command identities with exponentially weighted duration averages.
+Raw commands, arguments, tool outputs, and individual observation logs are not saved.
+Hashes are not an anonymization guarantee. Stored state remains local to the machine.
+
+`status` compares the adaptive model, its uncertainty-aware decisions, the frozen
+shipped model, keyword rules, and command duration history. Counts use the predictions
+captured **before execution and before learning from that observation**, including
+when calls overlap. Forced classifiers use 0.5; the uncertainty-aware variant uses
+the existing 0.25/0.75 band. History abstains until a command has completed before.
+All metrics cover successful observed calls only, not failed or cancelled work.
+
+Every successful observation makes one small logistic-gradient update (learning
+rate 0.1), with a weak pull toward the shipped weights to limit drift. These are
+experimental defaults. A single observation cannot make a large parameter update;
+repeated mistakes can still degrade predictions. No claim of production accuracy
+or scheduling improvement follows from learning alone.
+
+Updates run asynchronously after the end event and flush on graceful shutdown.
+Concurrent local writers serialize through a short file lock and replace state
+atomically. Predictions use the last loaded snapshot, refreshed at agent start and
+after saves. A crash can lose pending observations; if a crashed writer leaves a
+`.json.lock` file, stop observers for that repository before removing that specific
+lock. Corrupt state or a changed shipped model produces a warning/error rather than
+silently replacing learned data. Use a fresh state directory to start over.
+
+For offline experiments, replay measured observations in chronological order:
+
+```json
+{
+  "tool": "bash",
+  "arguments": { "command": "npm run check" },
+  "durationMs": 12450,
+  "status": "completed"
+}
+```
+
+```sh
+node cli.mjs observe --repo ../Volt --input observation.json
+```
+
+`observe` predicts before using the supplied duration, then saves the update. It
+does not execute the command. The library also exports `openRepository` from
+`online.mjs`: call `begin(call)` before execution and `complete(ticket, outcome)`
+at terminal completion; call `flush()` before shutdown. Completion tickets are
+single-use. `refresh()` incorporates updates saved by other processes.
 
 ## Initial results
 
@@ -108,7 +187,8 @@ node cli.mjs predict --model local-model.json --command "npm run test"
 ```
 
 Keep local measurements outside the repository if they contain private paths or
-command arguments. There is no automatic collection, execution, or upload. Group
+command arguments. Collection requires explicitly loading the observer; there is no
+automatic command execution or upload. Group
 repeated commands, wrappers, and variants together; for real evaluation, hold out
 entire repositories or sessions where possible. The validator rejects groups and
 identical feature vectors crossing splits; semantic near-duplicates still require
@@ -140,8 +220,9 @@ The implementation uses Node built-ins and does not depend on scikit-learn.
 
 ## When to try it in Volt
 
-The prototype can begin observation-only evaluation now. Live scheduling needs a
-separate harness integration; this repository does not yet provide one.
+The included Volt extension supports observation-only evaluation now. Live
+scheduling still needs a separate integration; the extension never selects async
+execution.
 
 1. Run predictions in shadow mode while keeping existing scheduling. Record actual
    completed execution durations, model predictions, repository/session groups, and
