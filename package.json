@@ -1,0 +1,22 @@
+{
+  "name": "@volt-hq/tool-duration-classifier",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny local tool-duration classifier experiment for Volt",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/volt-hq/tool-duration-classifier.git"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "check": "node --check model.mjs && node --check cli.mjs && node --check model.test.mjs && node --test model.test.mjs",
+    "train": "node cli.mjs train",
+    "evaluate": "node cli.mjs evaluate",
+    "predict": "node cli.mjs predict",
+    "benchmark": "node cli.mjs benchmark"
+  }
+}
